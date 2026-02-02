@@ -2,6 +2,8 @@
 package schema
 
 import (
+	"strings"
+
 	"github.com/invopop/jsonschema"
 	"github.com/ron96g/json-schema-gen/internal/parser"
 )
@@ -19,6 +21,13 @@ func GoTypeToJSONSchema(typeInfo parser.TypeInfo) (schemaType string, format str
 
 	case parser.TypeKindTime:
 		return "string", "date-time"
+
+	case parser.TypeKindDuration:
+		return "string", "duration"
+
+	case parser.TypeKindAlias:
+		// Resolve alias to its underlying type
+		return primitiveToSchema(typeInfo.UnderlyingName)
 
 	case parser.TypeKindSlice, parser.TypeKindArray:
 		return "array", ""
@@ -63,6 +72,18 @@ func primitiveToSchema(name string) (string, string) {
 func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker) *jsonschema.Schema {
 	schema := &jsonschema.Schema{}
 
+	// Check for schema tag override (e.g., schema:"type=string")
+	if schemaTag, ok := field.Tags["schema"]; ok {
+		if overrideType := parseSchemaTypeOverride(schemaTag); overrideType != "" {
+			schema.Type = overrideType
+			// Add description from doc comment
+			if field.Doc != "" {
+				schema.Description = field.Doc
+			}
+			return schema
+		}
+	}
+
 	// Handle based on type kind
 	underlying := field.Type.Underlying()
 
@@ -77,6 +98,18 @@ func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker) *jsonschem
 	case parser.TypeKindTime:
 		schema.Type = "string"
 		schema.Format = "date-time"
+
+	case parser.TypeKindDuration:
+		schema.Type = "string"
+		schema.Format = "duration"
+
+	case parser.TypeKindAlias:
+		// Resolve alias to underlying primitive type
+		schemaType, format := primitiveToSchema(underlying.UnderlyingName)
+		schema.Type = schemaType
+		if format != "" {
+			schema.Format = format
+		}
 
 	case parser.TypeKindSlice, parser.TypeKindArray:
 		schema.Type = "array"
@@ -136,6 +169,17 @@ func buildElemSchema(typeInfo parser.TypeInfo, refTracker *RefTracker) *jsonsche
 	case parser.TypeKindTime:
 		return &jsonschema.Schema{Type: "string", Format: "date-time"}
 
+	case parser.TypeKindDuration:
+		return &jsonschema.Schema{Type: "string", Format: "duration"}
+
+	case parser.TypeKindAlias:
+		schemaType, format := primitiveToSchema(underlying.UnderlyingName)
+		schema := &jsonschema.Schema{Type: schemaType}
+		if format != "" {
+			schema.Format = format
+		}
+		return schema
+
 	case parser.TypeKindStruct:
 		if underlying.IsExported && underlying.PackageName == "" {
 			refTracker.AddRef(underlying.Name)
@@ -160,4 +204,16 @@ func buildElemSchema(typeInfo parser.TypeInfo, refTracker *RefTracker) *jsonsche
 	default:
 		return &jsonschema.Schema{}
 	}
+}
+
+// parseSchemaTypeOverride extracts the type override from a schema tag.
+// Supports format: schema:"type=string" or schema:"type=integer"
+func parseSchemaTypeOverride(schemaTag string) string {
+	for _, part := range strings.Split(schemaTag, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "type=") {
+			return strings.TrimPrefix(part, "type=")
+		}
+	}
+	return ""
 }

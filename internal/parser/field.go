@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+var (
+	commonTags = []string{"json", "yaml", "xml", "mapstructure", "validate", "description", "schema"}
+)
+
 // parseField extracts FieldInfo from an AST field.
 func (p *Parser) parseField(field *ast.Field, nameTag string) []FieldInfo {
 	var fields []FieldInfo
@@ -86,7 +90,7 @@ func parseTags(tagLit *ast.BasicLit) map[string]string {
 	structTag := reflect.StructTag(tagStr)
 
 	// Extract common tags
-	for _, key := range []string{"json", "yaml", "xml", "mapstructure", "validate", "description"} {
+	for _, key := range commonTags {
 		if val, ok := structTag.Lookup(key); ok {
 			tags[key] = val
 		}

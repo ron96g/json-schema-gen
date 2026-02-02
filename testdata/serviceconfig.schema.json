@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Service identifier using custom type"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "pending"
+      ],
+      "description": "Service status using custom enum type"
+    },
+    "timeout": {
+      "type": "string",
+      "format": "duration",
+      "description": "Request timeout duration"
+    },
+    "retry_delay": {
+      "type": "string",
+      "format": "duration",
+      "description": "Retry delay duration"
+    },
+    "max_retries": {
+      "type": "integer",
+      "maximum": 10,
+      "minimum": 0,
+      "description": "Maximum retry count"
+    },
+    "delay_ms": {
+      "type": "integer",
+      "description": "Delay in milliseconds"
+    },
+    "success_rate": {
+      "type": "number",
+      "maximum": 100,
+      "minimum": 0,
+      "description": "Success rate percentage"
+    },
+    "allowed_statuses": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array",
+      "description": "List of allowed statuses"
+    },
+    "operation_timeouts": {
+      "additionalProperties": {
+        "type": "string",
+        "format": "duration"
+      },
+      "type": "object",
+      "description": "Map of timeouts by operation"
+    },
+    "custom_data": {
+      "type": "object",
+      "description": "Custom external type with schema override"
+    }
+  },
+  "type": "object",
+  "required": [
+    "id",
+    "status"
+  ],
+  "title": "ServiceConfig",
+  "description": "ServiceConfig demonstrates custom types and time.Duration support"
+}

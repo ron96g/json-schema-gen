@@ -3,6 +3,13 @@ package testdata
 
 import "time"
 
+// Custom type aliases for testing
+type UserID string
+type Status string
+type Counter int
+type Milliseconds int64
+type Percentage float64
+
 // +schema
 // User represents a system user
 type User struct {
@@ -51,4 +58,29 @@ type Product struct {
 	URL string `json:"url" validate:"url"`
 	// Product tags
 	Tags []string `json:"tags,omitempty"`
+}
+
+// +schema
+// ServiceConfig demonstrates custom types and time.Duration support
+type ServiceConfig struct {
+	// Service identifier using custom type
+	ID UserID `json:"id" validate:"required"`
+	// Service status using custom enum type
+	Status Status `json:"status" validate:"required,oneof=active inactive pending"`
+	// Request timeout duration
+	Timeout time.Duration `json:"timeout"`
+	// Retry delay duration
+	RetryDelay time.Duration `json:"retry_delay,omitempty"`
+	// Maximum retry count
+	MaxRetries Counter `json:"max_retries" validate:"gte=0,lte=10"`
+	// Delay in milliseconds
+	DelayMs Milliseconds `json:"delay_ms"`
+	// Success rate percentage
+	SuccessRate Percentage `json:"success_rate" validate:"gte=0,lte=100"`
+	// List of allowed statuses
+	AllowedStatuses []Status `json:"allowed_statuses,omitempty"`
+	// Map of timeouts by operation
+	OperationTimeouts map[string]time.Duration `json:"operation_timeouts,omitempty"`
+	// Custom external type with schema override
+	CustomData interface{} `json:"custom_data,omitempty" schema:"type=object"`
 }

@@ -16,8 +16,10 @@ const SchemaMarker = "+schema"
 
 // Parser handles AST parsing of Go source files.
 type Parser struct {
-	fset    *token.FileSet
-	nameTag string // Tag to use for property names (json, yaml, etc.)
+	fset         *token.FileSet
+	nameTag      string               // Tag to use for property names (json, yaml, etc.)
+	typeRegistry map[string]TypeDecl  // Registry of type declarations in current package
+	parsedFiles  map[string]*ast.File // Cache of parsed AST files
 }
 
 // NewParser creates a new Parser instance.
@@ -26,8 +28,10 @@ func NewParser(nameTag string) *Parser {
 		nameTag = "json"
 	}
 	return &Parser{
-		fset:    token.NewFileSet(),
-		nameTag: nameTag,
+		fset:         token.NewFileSet(),
+		nameTag:      nameTag,
+		typeRegistry: make(map[string]TypeDecl),
+		parsedFiles:  make(map[string]*ast.File),
 	}
 }
 
@@ -145,7 +149,73 @@ func (p *Parser) parseFile(filePath string) ([]StructInfo, error) {
 		return nil, fmt.Errorf("parse file %s: %w", filePath, err)
 	}
 
+	// Pass 1: Extract type declarations to build registry
+	p.extractTypeDecls(file)
+
+	// Pass 2: Extract structs using the registry
 	return p.extractStructs(file, filePath)
+}
+
+// extractTypeDecls extracts type declarations from an AST file to build the type registry.
+// This is the first pass of parsing that identifies type aliases like `type MyEnum string`.
+func (p *Parser) extractTypeDecls(file *ast.File) {
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		if genDecl.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			// Only process exported types
+			if !typeSpec.Name.IsExported() {
+				continue
+			}
+
+			// Check if this is a simple type alias (not a struct)
+			ident, ok := typeSpec.Type.(*ast.Ident)
+			if !ok {
+				continue // Skip structs, interfaces, etc.
+			}
+
+			// Determine the underlying type kind
+			underlyingKind, underlyingName := p.classifyPrimitive(ident.Name)
+			if underlyingKind == TypeKindUnknown {
+				continue // Skip aliases to non-primitives
+			}
+
+			p.typeRegistry[typeSpec.Name.Name] = TypeDecl{
+				Name:           typeSpec.Name.Name,
+				UnderlyingKind: underlyingKind,
+				UnderlyingName: underlyingName,
+			}
+		}
+	}
+}
+
+// classifyPrimitive determines the TypeKind and normalized name for a primitive type.
+func (p *Parser) classifyPrimitive(name string) (TypeKind, string) {
+	switch name {
+	case "string":
+		return TypeKindPrimitive, "string"
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"byte", "rune":
+		return TypeKindPrimitive, name
+	case "float32", "float64":
+		return TypeKindPrimitive, name
+	case "bool":
+		return TypeKindPrimitive, "bool"
+	default:
+		return TypeKindUnknown, ""
+	}
 }
 
 // extractStructs extracts all exported structs from an AST file.
@@ -371,6 +441,17 @@ func (p *Parser) parseIdent(ident *ast.Ident) TypeInfo {
 	case "any":
 		return TypeInfo{Kind: TypeKindInterface, Name: name}
 	default:
+		// Check type registry for aliases (e.g., type MyEnum string)
+		if decl, ok := p.typeRegistry[name]; ok {
+			return TypeInfo{
+				Kind:           TypeKindAlias,
+				Name:           name,
+				IsExported:     ast.IsExported(name),
+				UnderlyingKind: decl.UnderlyingKind,
+				UnderlyingName: decl.UnderlyingName,
+			}
+		}
+
 		// Named type (struct reference)
 		return TypeInfo{
 			Kind:       TypeKindStruct,
@@ -395,6 +476,15 @@ func (p *Parser) parseSelectorExpr(sel *ast.SelectorExpr) TypeInfo {
 	if pkgName == "time" && typeName == "Time" {
 		return TypeInfo{
 			Kind:        TypeKindTime,
+			Name:        fullName,
+			PackageName: pkgName,
+		}
+	}
+
+	// Special case for time.Duration
+	if pkgName == "time" && typeName == "Duration" {
+		return TypeInfo{
+			Kind:        TypeKindDuration,
 			Name:        fullName,
 			PackageName: pkgName,
 		}
