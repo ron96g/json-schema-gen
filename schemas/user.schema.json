@@ -1,0 +1,77 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/ron96g/json-schema-gen/main/schemas/user.schema.json",
+    "properties": 
+    {
+        "id": 
+        {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique identifier"
+        },
+        "email": 
+        {
+            "type": "string",
+            "format": "email",
+            "description": "User's email address"
+        },
+        "age": 
+        {
+            "type": "integer",
+            "maximum": 150,
+            "minimum": 0,
+            "description": "Age in years"
+        },
+        "name": 
+        {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "description": "User's display name"
+        },
+        "address": 
+        {
+            "$ref": "address.schema.json",
+            "description": "User's address"
+        },
+        "roles": 
+        {
+            "items": 
+            {
+                "type": "string",
+                "enum": 
+                [
+                    "admin",
+                    "user",
+                    "guest"
+                ]
+            },
+            "type": "array",
+            "description": "List of roles"
+        },
+        "created_at": 
+        {
+            "type": "string",
+            "format": "date-time",
+            "description": "Account creation time"
+        },
+        "metadata": 
+        {
+            "additionalProperties": 
+            {
+                "type": "string"
+            },
+            "type": "object",
+            "description": "Optional metadata"
+        }
+    },
+    "type": "object",
+    "required": 
+    [
+        "id",
+        "email",
+        "name"
+    ],
+    "title": "User",
+    "description": "User represents a system user"
+}
