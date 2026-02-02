@@ -19,4 +19,4 @@ build: fmt vet
 
 .PHONY: e2e-test
 e2e-test: build
-	go run main.go --output-dir testdata testdata
+	go run main.go --output-dir testdata testdata 

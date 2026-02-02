@@ -2,11 +2,21 @@
 package schema
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/invopop/jsonschema"
 	"github.com/ron96g/json-schema-gen/internal/parser"
 )
+
+// InlineContext holds state for inline schema generation.
+type InlineContext struct {
+	Enabled      bool                         // Deprecated: kept for compatibility, always false
+	ParentInline bool                         // Whether the parent struct has +schema:inline
+	StructMap    map[string]parser.StructInfo // Map of struct names to their info
+	InProgress   map[string]bool              // Tracks types being built (circular ref detection)
+	Builder      *Builder                     // Reference to builder for recursive calls
+}
 
 // GoTypeToJSONSchema converts a Go TypeInfo to JSON Schema type and format.
 func GoTypeToJSONSchema(typeInfo parser.TypeInfo) (schemaType string, format string) {
@@ -69,7 +79,8 @@ func primitiveToSchema(name string) (string, string) {
 }
 
 // BuildFieldSchema creates a JSON Schema for a field's type.
-func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker) *jsonschema.Schema {
+// If inlineCtx is provided and enabled, struct references are inlined instead of using $ref.
+func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker, inlineCtx *InlineContext) (*jsonschema.Schema, error) {
 	schema := &jsonschema.Schema{}
 
 	// Check for schema tag override (e.g., schema:"type=string")
@@ -80,7 +91,7 @@ func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker) *jsonschem
 			if field.Doc != "" {
 				schema.Description = field.Doc
 			}
-			return schema
+			return schema, nil
 		}
 	}
 
@@ -114,23 +125,53 @@ func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker) *jsonschem
 	case parser.TypeKindSlice, parser.TypeKindArray:
 		schema.Type = "array"
 		if underlying.ElemType != nil {
-			elemSchema := buildElemSchema(*underlying.ElemType, refTracker)
+			elemSchema, err := buildElemSchema(*underlying.ElemType, refTracker, inlineCtx)
+			if err != nil {
+				return nil, err
+			}
 			schema.Items = elemSchema
 		}
 
 	case parser.TypeKindMap:
 		schema.Type = "object"
 		if underlying.ElemType != nil {
-			valueSchema := buildElemSchema(*underlying.ElemType, refTracker)
+			valueSchema, err := buildElemSchema(*underlying.ElemType, refTracker, inlineCtx)
+			if err != nil {
+				return nil, err
+			}
 			schema.AdditionalProperties = valueSchema
 		}
 
 	case parser.TypeKindStruct:
 		// Reference to another struct
 		if underlying.IsExported && underlying.PackageName == "" {
-			// Local struct reference
-			refTracker.AddRef(underlying.Name)
-			schema.Ref = refTracker.GetRefPath(underlying.Name)
+			// Determine if we should inline this specific struct reference
+			shouldInline := shouldInlineStruct(inlineCtx)
+
+			if shouldInline {
+				inlinedSchema, err := inlineStructSchema(underlying.Name, inlineCtx)
+				if err != nil {
+					return nil, err
+				}
+				if inlinedSchema != nil {
+					// Copy relevant fields from inlined schema
+					schema.Type = inlinedSchema.Type
+					schema.Properties = inlinedSchema.Properties
+					schema.Required = inlinedSchema.Required
+					schema.Description = inlinedSchema.Description
+				} else {
+					// Referenced type not found, treat as object
+					schema.Type = "object"
+				}
+			} else {
+				// Use $ref
+				if refTracker != nil {
+					refTracker.AddRef(underlying.Name)
+					schema.Ref = refTracker.GetRefPath(underlying.Name)
+				} else {
+					schema.Type = "object"
+				}
+			}
 		} else if underlying.PackageName != "" {
 			// External package struct - treat as object
 			schema.Type = "object"
@@ -150,11 +191,50 @@ func BuildFieldSchema(field parser.FieldInfo, refTracker *RefTracker) *jsonschem
 		schema.Description = field.Doc
 	}
 
-	return schema
+	return schema, nil
+}
+
+// shouldInlineStruct determines whether a referenced struct should be inlined.
+// Returns true if the parent struct has +schema:inline marker.
+func shouldInlineStruct(inlineCtx *InlineContext) bool {
+	if inlineCtx == nil {
+		return false
+	}
+
+	// Only inline if parent struct has +schema:inline
+	return inlineCtx.ParentInline
+}
+
+// inlineStructSchema creates an inline schema for a referenced struct.
+func inlineStructSchema(name string, inlineCtx *InlineContext) (*jsonschema.Schema, error) {
+	structInfo, ok := inlineCtx.StructMap[name]
+	if !ok {
+		// Referenced type not found
+		return nil, nil
+	}
+
+	// Check for circular reference
+	if inlineCtx.InProgress[name] {
+		return nil, fmt.Errorf("circular reference detected: %s", name)
+	}
+
+	// Mark as in-progress
+	inlineCtx.InProgress[name] = true
+
+	// Recursively build inline schema
+	inlinedSchema, err := inlineCtx.Builder.buildInlineSchema(structInfo, inlineCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Clear in-progress (allow same type to be used in different branches)
+	delete(inlineCtx.InProgress, name)
+
+	return inlinedSchema, nil
 }
 
 // buildElemSchema creates a schema for collection element types.
-func buildElemSchema(typeInfo parser.TypeInfo, refTracker *RefTracker) *jsonschema.Schema {
+func buildElemSchema(typeInfo parser.TypeInfo, refTracker *RefTracker, inlineCtx *InlineContext) (*jsonschema.Schema, error) {
 	underlying := typeInfo.Underlying()
 
 	switch underlying.Kind {
@@ -164,13 +244,13 @@ func buildElemSchema(typeInfo parser.TypeInfo, refTracker *RefTracker) *jsonsche
 		if format != "" {
 			schema.Format = format
 		}
-		return schema
+		return schema, nil
 
 	case parser.TypeKindTime:
-		return &jsonschema.Schema{Type: "string", Format: "date-time"}
+		return &jsonschema.Schema{Type: "string", Format: "date-time"}, nil
 
 	case parser.TypeKindDuration:
-		return &jsonschema.Schema{Type: "string", Format: "duration"}
+		return &jsonschema.Schema{Type: "string", Format: "duration"}, nil
 
 	case parser.TypeKindAlias:
 		schemaType, format := primitiveToSchema(underlying.UnderlyingName)
@@ -178,31 +258,57 @@ func buildElemSchema(typeInfo parser.TypeInfo, refTracker *RefTracker) *jsonsche
 		if format != "" {
 			schema.Format = format
 		}
-		return schema
+		return schema, nil
 
 	case parser.TypeKindStruct:
 		if underlying.IsExported && underlying.PackageName == "" {
-			refTracker.AddRef(underlying.Name)
-			return &jsonschema.Schema{Ref: refTracker.GetRefPath(underlying.Name)}
+			// Determine if we should inline this specific struct reference
+			shouldInline := shouldInlineStruct(inlineCtx)
+
+			if shouldInline {
+				inlinedSchema, err := inlineStructSchema(underlying.Name, inlineCtx)
+				if err != nil {
+					return nil, err
+				}
+				if inlinedSchema != nil {
+					return inlinedSchema, nil
+				}
+				// Referenced type not found, treat as object
+				return &jsonschema.Schema{Type: "object"}, nil
+			}
+			// Use $ref
+			if refTracker != nil {
+				refTracker.AddRef(underlying.Name)
+				return &jsonschema.Schema{Ref: refTracker.GetRefPath(underlying.Name)}, nil
+			}
+			return &jsonschema.Schema{Type: "object"}, nil
 		}
-		return &jsonschema.Schema{Type: "object"}
+		return &jsonschema.Schema{Type: "object"}, nil
 
 	case parser.TypeKindSlice, parser.TypeKindArray:
 		schema := &jsonschema.Schema{Type: "array"}
 		if underlying.ElemType != nil {
-			schema.Items = buildElemSchema(*underlying.ElemType, refTracker)
+			items, err := buildElemSchema(*underlying.ElemType, refTracker, inlineCtx)
+			if err != nil {
+				return nil, err
+			}
+			schema.Items = items
 		}
-		return schema
+		return schema, nil
 
 	case parser.TypeKindMap:
 		schema := &jsonschema.Schema{Type: "object"}
 		if underlying.ElemType != nil {
-			schema.AdditionalProperties = buildElemSchema(*underlying.ElemType, refTracker)
+			additionalProps, err := buildElemSchema(*underlying.ElemType, refTracker, inlineCtx)
+			if err != nil {
+				return nil, err
+			}
+			schema.AdditionalProperties = additionalProps
 		}
-		return schema
+		return schema, nil
 
 	default:
-		return &jsonschema.Schema{}
+		return &jsonschema.Schema{}, nil
 	}
 }
 

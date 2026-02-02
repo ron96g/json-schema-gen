@@ -253,7 +253,14 @@ func (p *Parser) extractStructs(file *ast.File, filePath string) ([]StructInfo, 
 				continue
 			}
 
+			// Extract inline preference from marker
+			_, inline := parseSchemaMarker(typeSpec.Doc)
+			if !inline {
+				_, inline = parseSchemaMarker(genDecl.Doc)
+			}
+
 			structInfo := p.parseStruct(typeSpec, structType, packageName, filePath, genDecl.Doc)
+			structInfo.Inline = inline
 			structs = append(structs, structInfo)
 		}
 	}
@@ -263,21 +270,19 @@ func (p *Parser) extractStructs(file *ast.File, filePath string) ([]StructInfo, 
 
 // hasSchemaMarker checks if the doc comments contain the +schema marker.
 func hasSchemaMarker(groupDoc, typeDoc *ast.CommentGroup) bool {
-	// Check type-level doc first
-	if typeDoc != nil && containsMarker(typeDoc) {
+	hasMarker, _ := parseSchemaMarker(typeDoc)
+	if hasMarker {
 		return true
 	}
-	// Fall back to declaration-level doc
-	if groupDoc != nil && containsMarker(groupDoc) {
-		return true
-	}
-	return false
+	hasMarker, _ = parseSchemaMarker(groupDoc)
+	return hasMarker
 }
 
-// containsMarker checks if a comment group contains the schema marker.
-func containsMarker(cg *ast.CommentGroup) bool {
+// parseSchemaMarker checks for +schema marker and extracts options.
+// Returns: hasMarker bool, inline bool
+func parseSchemaMarker(cg *ast.CommentGroup) (bool, bool) {
 	if cg == nil {
-		return false
+		return false, false
 	}
 	for _, c := range cg.List {
 		text := c.Text
@@ -286,11 +291,18 @@ func containsMarker(cg *ast.CommentGroup) bool {
 		text = strings.TrimPrefix(text, "/*")
 		text = strings.TrimSuffix(text, "*/")
 		text = strings.TrimSpace(text)
-		if text == SchemaMarker || strings.HasPrefix(text, SchemaMarker+" ") {
-			return true
+
+		if text == SchemaMarker {
+			return true, false // +schema without inline
+		}
+		if text == SchemaMarker+":inline" || strings.HasPrefix(text, SchemaMarker+":inline ") {
+			return true, true // +schema:inline
+		}
+		if strings.HasPrefix(text, SchemaMarker+" ") {
+			return true, false // +schema with description
 		}
 	}
-	return false
+	return false, false
 }
 
 // parseStruct parses a struct type specification.
@@ -497,4 +509,142 @@ func (p *Parser) parseSelectorExpr(sel *ast.SelectorExpr) TypeInfo {
 		PackageName: pkgName,
 		IsExported:  ast.IsExported(typeName),
 	}
+}
+
+// FindStructByName finds a specific exported struct by name without requiring the +schema annotation.
+// This is used to resolve referenced types that aren't explicitly annotated.
+func (p *Parser) FindStructByName(path string, name string, recursive bool) (*StructInfo, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat path %s: %w", path, err)
+	}
+
+	if recursive && info.IsDir() {
+		return p.findStructInDirRecursive(path, name)
+	}
+
+	if info.IsDir() {
+		return p.findStructInDir(path, name)
+	}
+	return p.findStructInFile(path, name)
+}
+
+// findStructInDirRecursive recursively searches for a struct by name.
+func (p *Parser) findStructInDirRecursive(root string, name string) (*StructInfo, error) {
+	var result *StructInfo
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !d.IsDir() {
+			return nil
+		}
+
+		if shouldSkipDir(d.Name()) {
+			return filepath.SkipDir
+		}
+
+		found, err := p.findStructInDir(path, name)
+		if err != nil {
+			return nil // Continue searching other directories
+		}
+		if found != nil {
+			result = found
+			return filepath.SkipAll // Found it, stop searching
+		}
+		return nil
+	})
+
+	if err != nil && err != filepath.SkipAll {
+		return nil, fmt.Errorf("walk directory %s: %w", root, err)
+	}
+
+	return result, nil
+}
+
+// findStructInDir searches for a struct by name in a single directory.
+func (p *Parser) findStructInDir(dir string, name string) (*StructInfo, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read directory %s: %w", dir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+
+		filePath := filepath.Join(dir, entry.Name())
+		found, err := p.findStructInFile(filePath, name)
+		if err != nil {
+			continue
+		}
+		if found != nil {
+			return found, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// findStructInFile searches for a struct by name in a single file.
+func (p *Parser) findStructInFile(filePath string, name string) (*StructInfo, error) {
+	src, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read file %s: %w", filePath, err)
+	}
+
+	file, err := parser.ParseFile(p.fset, filePath, src, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("parse file %s: %w", filePath, err)
+	}
+
+	packageName := file.Name.Name
+
+	// Extract type declarations for registry
+	p.extractTypeDecls(file)
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		if genDecl.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			// Only match exported types with the target name
+			if !typeSpec.Name.IsExported() {
+				continue
+			}
+			if typeSpec.Name.Name != name {
+				continue
+			}
+
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+
+			// Parse the struct without requiring +schema annotation
+			structInfo := p.parseStruct(typeSpec, structType, packageName, filePath, genDecl.Doc)
+			return &structInfo, nil
+		}
+	}
+
+	return nil, nil
 }

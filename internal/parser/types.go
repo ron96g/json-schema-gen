@@ -47,6 +47,7 @@ type StructInfo struct {
 	Fields      []FieldInfo
 	Doc         string // Comment above struct
 	FilePath    string // Source file path
+	Inline      bool   // Per-struct inline preference from +schema:inline
 }
 
 // FieldInfo holds parsed information about a struct field.

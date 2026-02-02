@@ -36,8 +36,9 @@ func Parse() (*Config, error) {
 		fmt.Fprintf(os.Stderr, "  json-schema-gen --output-dir schemas --tag yaml ./api/types.go\n")
 		fmt.Fprintf(os.Stderr, "  json-schema-gen --output-dir schemas --schema-id https://example.com/schemas .\n")
 		fmt.Fprintf(os.Stderr, "  json-schema-gen --output-dir schemas --recursive .  # scan all subdirs\n")
-		fmt.Fprintf(os.Stderr, "\nAnnotation:\n")
-		fmt.Fprintf(os.Stderr, "  In recursive mode, only structs with // +schema annotation are processed.\n")
+		fmt.Fprintf(os.Stderr, "\nAnnotations:\n")
+		fmt.Fprintf(os.Stderr, "  // +schema         - Include struct in schema generation (uses $ref for references)\n")
+		fmt.Fprintf(os.Stderr, "  // +schema:inline  - Include struct with all references inlined (no $ref)\n")
 	}
 
 	flag.Parse()

@@ -10,6 +10,21 @@ type Counter int
 type Milliseconds int64
 type Percentage float64
 
+// +schema:inline
+// Inline Version of User
+type InlineUser struct {
+	// Unique identifier
+	ID string `json:"id" validate:"required,uuid"`
+	// User's email address
+	Email string `json:"email" validate:"required,email"`
+	// Age in years
+	Age int `json:"age" validate:"gte=0,lte=150"`
+	// User's display name
+	Name string `json:"name" validate:"required,min=1,max=100"`
+	// User's address
+	Address Address `json:"address"`
+}
+
 // +schema
 // User represents a system user
 type User struct {
@@ -31,7 +46,6 @@ type User struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
-// +schema
 // Address represents a physical address
 type Address struct {
 	// Street address

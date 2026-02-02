@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "User's email address"
+    },
+    "age": {
+      "type": "integer",
+      "maximum": 150,
+      "minimum": 0,
+      "description": "Age in years"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 100,
+      "minLength": 1,
+      "description": "User's display name"
+    },
+    "address": {
+      "properties": {
+        "street": {
+          "type": "string",
+          "description": "Street address"
+        },
+        "city": {
+          "type": "string",
+          "description": "City name"
+        },
+        "zip_code": {
+          "type": "string",
+          "maxLength": 5,
+          "minLength": 5,
+          "pattern": "^[0-9]+$",
+          "description": "ZIP or postal code"
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 2,
+          "minLength": 2,
+          "pattern": "^[A-Z]+$",
+          "description": "Country code"
+        }
+      },
+      "type": "object",
+      "required": [
+        "street",
+        "city",
+        "zip_code",
+        "country"
+      ],
+      "description": "User's address"
+    }
+  },
+  "type": "object",
+  "required": [
+    "id",
+    "email",
+    "name"
+  ],
+  "title": "InlineUser",
+  "description": "+schema:inline Inline Version of User"
+}
