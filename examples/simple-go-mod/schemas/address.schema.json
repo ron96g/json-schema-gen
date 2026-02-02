@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/ron96g/json-schema-gen/refs/heads/main/examples/simple-go-mod/address.schema.json",
+  "$id": "https://raw.githubusercontent.com/ron96g/json-schema-gen/refs/heads/main/examples/simple-go-mod/schemas/address.schema.json",
   "properties": {
     "street": {
       "type": "string",
