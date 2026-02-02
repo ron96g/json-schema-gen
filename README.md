@@ -73,13 +73,19 @@ age: 28
 
 ### go:generate
 
-Add to your Go file for automatic generation:
+Add the tool as a dependency:
 
-```go
-//go:generate json-schema-gen --output-dir schemas
+```bash
+go get -tool github.com/ron96g/json-schema-gen@latest
 ```
 
-Then run:
+Then add to your Go file:
+
+```go
+//go:generate go tool github.com/ron96g/json-schema-gen --output-dir schemas
+```
+
+Run:
 
 ```bash
 go generate ./...
