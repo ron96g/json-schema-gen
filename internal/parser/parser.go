@@ -98,7 +98,7 @@ func shouldSkipDir(name string) bool {
 		".svn":         true,
 		".hg":          true,
 	}
-	return skipDirs[name] || strings.HasPrefix(name, ".")
+	return skipDirs[name]
 }
 
 // parseDirectory parses all Go files in a directory.
