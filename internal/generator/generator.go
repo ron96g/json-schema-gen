@@ -145,13 +145,41 @@ func (g *Generator) GenerateFromPaths(paths []string) error {
 	}
 
 	// Track which structs are needed as schema files (referenced via $ref by non-inline structs)
+	// We need to propagate this iteratively: a struct needs a file if it's:
+	// 1. An annotated struct that is NOT inline (uses $ref)
+	// 2. Referenced by another struct that itself needs a file AND is not inline
 	refsNeededAsFiles := make(map[string]bool)
-	for _, structInfo := range allStructs {
-		// If this struct doesn't use inline mode, its references need schema files
+
+	// Seed with annotated non-inline structs
+	structsNeedingFiles := make(map[string]bool)
+	for name := range annotatedStructs {
+		structInfo := structMap[name]
 		if !structInfo.Inline {
-			for _, ref := range depGraph.GetDependencies(structInfo.Name) {
-				refsNeededAsFiles[ref] = true
+			structsNeedingFiles[name] = true
+		}
+	}
+
+	// Propagate: structs referenced by non-inline file-generating structs also need files
+	for {
+		changed := false
+		for name := range structsNeedingFiles {
+			structInfo := structMap[name]
+			// Only non-inline structs create $ref dependencies that need files
+			if !structInfo.Inline {
+				for _, ref := range depGraph.GetDependencies(name) {
+					if !refsNeededAsFiles[ref] {
+						refsNeededAsFiles[ref] = true
+						// The referenced struct also becomes a file-generating struct
+						if !structsNeedingFiles[ref] {
+							structsNeedingFiles[ref] = true
+							changed = true
+						}
+					}
+				}
 			}
+		}
+		if !changed {
+			break
 		}
 	}
 

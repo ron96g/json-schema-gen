@@ -40,11 +40,23 @@
           "pattern": "^[0-9]+$",
           "description": "ZIP or postal code"
         },
-        "country": {
-          "type": "string",
-          "maxLength": 2,
-          "minLength": 2,
-          "pattern": "^[A-Z]+$",
+        "Country": {
+          "properties": {
+            "country_id": {
+              "type": "string",
+              "maxLength": 2,
+              "minLength": 2,
+              "pattern": "^[A-Z]+$"
+            },
+            "country_name": {
+              "type": "string"
+            }
+          },
+          "type": "object",
+          "required": [
+            "country_id",
+            "country_name"
+          ],
           "description": "Country code"
         }
       },
@@ -52,8 +64,7 @@
       "required": [
         "street",
         "city",
-        "zip_code",
-        "country"
+        "zip_code"
       ],
       "description": "User's address"
     }

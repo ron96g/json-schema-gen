@@ -10,6 +10,22 @@ type Counter int
 type Milliseconds int64
 type Percentage float64
 
+type DetailedCountry struct {
+	ID   string `json:"country_id" validate:"required,len=2,uppercase"`
+	Name string `json:"country_name" validate:"required"`
+}
+
+type DetailedAddress struct {
+	// Street address
+	Street string `json:"street" validate:"required"`
+	// City name
+	City string `json:"city" validate:"required"`
+	// ZIP or postal code
+	ZipCode string `json:"zip_code" validate:"required,numeric,len=5"`
+	// Country code
+	Country DetailedCountry
+}
+
 // +schema:inline
 // Inline Version of User
 type InlineUser struct {
@@ -22,7 +38,7 @@ type InlineUser struct {
 	// User's display name
 	Name string `json:"name" validate:"required,min=1,max=100"`
 	// User's address
-	Address Address `json:"address"`
+	Address DetailedAddress `json:"address"`
 }
 
 // +schema
