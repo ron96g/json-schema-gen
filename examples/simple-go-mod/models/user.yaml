@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ron96g/json-schema-gen/refs/heads/main/examples/simple-go-mod/schemas/user.schema.json
+id: "user-001"
+email: "max.mustermann@example.com"
+name: Max Mustermann
+address:
+  street: Musterstraße 42
+  city: Berlin
+  zip_code: "10115"
+  country: DE
+roles:
+  - guest
+age: 28
